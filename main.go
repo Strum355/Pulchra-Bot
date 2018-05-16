@@ -144,7 +144,9 @@ func sendMessages() {
 		return
 	}
 
-	fields := []*discordgo.MessageEmbedField{}
+	fields := make([][]*discordgo.MessageEmbedField, 1)
+	var total uint16
+	var currIndex uint8
 	wasImage := false
 
 	for _, event := range events {
@@ -156,22 +158,50 @@ func sendMessages() {
 			go postToAdmin(event)
 			wasImage = true
 		} else {
-			processFileUpdates(event, fields)
+			processFileUpdates(event, fields, total, currIndex)
 			wasImage = false
 		}
 	}
 
 	if !wasImage {
-		for _, channel := range conf.Channels {
-			dg.ChannelMessageSendEmbed(channel, &discordgo.MessageEmbed{
-				Title:  "Pulchra Latest Updates",
-				Fields: fields,
-				Color:  conf.Color,
-			})
+		for _, channel := range conf.Channels { 
+			for _, field := range fields {
+				dg.ChannelMessageSendEmbed(channel, &discordgo.MessageEmbed{
+					Title:  "Pulchra Latest Updates",
+					Fields: field,
+					Color:  conf.Color,
+				})
+			}
 		}
 	}
 
 	events = []watcher.Event{}
+}
+
+func processFileUpdates(e watcher.Event, fields [][]*discordgo.MessageEmbedField, total uint16, currIndex uint8) {
+	if e.Op == watcher.Write {
+		return
+	}
+
+	name := e.String() + func() string {
+		if e.IsDir() {
+			return " Directory"
+		}
+		return " File"
+	}()
+
+	total += uint16(len(name))
+	total += uint16(len(e.Path))
+
+	if total >= 2000 {
+		currIndex++
+		fields = append(fields, []*discordgo.MessageEmbedField{})
+	}
+
+	fields[currIndex] = append(fields[currIndex], &discordgo.MessageEmbedField{
+		Name: name,
+		Value: e.Path,
+	})
 }
 
 func postToAdmin(e watcher.Event) {
@@ -220,21 +250,6 @@ func postToAdmin(e watcher.Event) {
 		}
 		return
 	}
-}
-
-func processFileUpdates(e watcher.Event, fields []*discordgo.MessageEmbedField) {
-	if e.Op == watcher.Write {
-		return
-	}
-	fields = append(fields, &discordgo.MessageEmbedField{
-		Name: e.String() + func() string {
-			if e.IsDir() {
-				return " Directory"
-			}
-			return " File"
-		}(),
-		Value: e.Path,
-	})
 }
 
 func nextMessageCreate(s *discordgo.Session) chan *discordgo.MessageCreate {

@@ -116,7 +116,7 @@ func message(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	if strings.TrimPrefix(m.Content, conf.Prefix) == "reload" {
 		if _, err := toml.DecodeFile("config.toml", &conf); err != nil {
-			fmt.Fprintln(logF, err)
+			sendError(err)
 			s.ChannelMessageSend(m.ChannelID, "Error reloading config"+err.Error())
 			return
 		}
@@ -177,7 +177,7 @@ func sendMessages() {
 func postToAdmin(e watcher.Event) {
 	f, err := os.Open(e.Path)
 	if err != nil {
-		fmt.Fprintln(logF, err)
+		sendError(err)
 		return
 	}
 	defer f.Close()
@@ -186,17 +186,12 @@ func postToAdmin(e watcher.Event) {
 	counter++
 
 	if _, err := dg.ChannelMessageSendComplex(conf.AdminChannel, &discordgo.MessageSend{
-		Embed: &discordgo.MessageEmbed{
-			Description: fmt.Sprintf("#%d", count),
-			Image: &discordgo.MessageEmbedImage{
-				URL: "attachment://" + filepath.Base(e.Path),
-			},
-		},
+		Content: fmt.Sprintf("#%d", count),
 		Files: []*discordgo.File{
 			{Name: filepath.Base(e.Path), Reader: f},
 		},
 	}); err != nil {
-		fmt.Fprintln(logF, err)
+		sendError(err)
 		return
 	}
 
@@ -204,31 +199,24 @@ func postToAdmin(e watcher.Event) {
 		runtime.Gosched()
 
 		msg := <-nextMessageCreate(dg)
-		if msg.Author.ID != conf.YourID ||
-			msg.ChannelID != conf.AdminChannel ||
-			!strings.HasPrefix(msg.Content, fmt.Sprintf("#%d", count)) {
+		if msg.Author.ID != conf.YourID ||msg.ChannelID != conf.AdminChannel || !strings.HasPrefix(msg.Content, fmt.Sprintf("#%d", count)) {
 			continue
 		}
 
-		f, err := os.Open(e.Path)
-		if err != nil {
-			fmt.Fprintln(logF, err)
+		if _, err := f.Seek(0, 0); err != nil {
+			sendError(err)
 			return
 		}
-		defer f.Close()
 
 		for _, channel := range conf.Channels {
-			dg.ChannelMessageSendComplex(channel, &discordgo.MessageSend{
-				Embed: &discordgo.MessageEmbed{
-					Description: strings.TrimPrefix(msg.Content, fmt.Sprintf("#%d", count)),
-					Image: &discordgo.MessageEmbedImage{
-						URL: "attachment://" + filepath.Base(e.Path),
-					},
-				},
+			if _, err := dg.ChannelMessageSendComplex(channel, &discordgo.MessageSend{
+				Content: strings.TrimPrefix(msg.Content, fmt.Sprintf("#%d", count)),
 				Files: []*discordgo.File{
 					{Name: filepath.Base(e.Path), Reader: f},
 				},
-			})
+			}); err != nil {
+				sendError(err)
+			}
 		}
 		return
 	}

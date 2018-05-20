@@ -148,6 +148,7 @@ func sendMessages() {
 	var total uint16
 	var currIndex uint8
 	wasImage := false
+	var action string
 
 	for _, event := range events {
 		if event.IsDir() {
@@ -158,7 +159,7 @@ func sendMessages() {
 			go postToAdmin(event)
 			wasImage = true
 		} else {
-			processFileUpdates(event, fields, total, currIndex)
+			processFileUpdates(event, &fields, &total, &currIndex, &action)
 			wasImage = false
 		}
 	}
@@ -166,11 +167,13 @@ func sendMessages() {
 	if !wasImage {
 		for _, channel := range conf.Channels { 
 			for _, field := range fields {
-				dg.ChannelMessageSendEmbed(channel, &discordgo.MessageEmbed{
+				if _, err := dg.ChannelMessageSendEmbed(channel, &discordgo.MessageEmbed{
 					Title:  "Pulchra Latest Updates",
 					Fields: field,
 					Color:  conf.Color,
-				})
+				}); err != nil {
+					fmt.Println(err)
+				}
 			}
 		}
 	}
@@ -178,30 +181,31 @@ func sendMessages() {
 	events = []watcher.Event{}
 }
 
-func processFileUpdates(e watcher.Event, fields [][]*discordgo.MessageEmbedField, total uint16, currIndex uint8) {
+func processFileUpdates(e watcher.Event, fields *[][]*discordgo.MessageEmbedField, total *uint16, currIndex *uint8, action *string) {
 	if e.Op == watcher.Write {
 		return
 	}
 
-	name := e.String() + func() string {
-		if e.IsDir() {
-			return " Directory"
-		}
-		return " File"
-	}()
-
-	total += uint16(len(name))
-	total += uint16(len(e.Path))
-
-	if total >= 2000 {
-		currIndex++
-		fields = append(fields, []*discordgo.MessageEmbedField{})
+	name := e.Op.String() + "D"
+	if name == *action {
+		name = "​"
+	} else {
+		*action = name
 	}
 
-	fields[currIndex] = append(fields[currIndex], &discordgo.MessageEmbedField{
+	if *total > 20 {
+		*currIndex++
+		*total = 0
+		*fields = append(*fields, []*discordgo.MessageEmbedField{})
+		name = e.Op.String() + "D"
+	} 
+
+	(*fields)[*currIndex] = append((*fields)[*currIndex], &discordgo.MessageEmbedField{
 		Name: name,
-		Value: e.Path,
+		Value: e.FileInfo.Name(),
 	})
+
+	*total++
 }
 
 func postToAdmin(e watcher.Event) {
